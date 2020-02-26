@@ -46,13 +46,13 @@ anem_ = Pin(anem_pin_, Pin.IN, Pin.PULL_UP)
 led_ = Pin(led_pin_, Pin.OUT)
 ledsig_ = Signal(led_, invert=True)
 
-anemDebounceTime_ = 0
-vaneDebounceTime_ = 0
-anemTime_ = 0
-anemLastTime_ = 0
-anemLastVal_ = anem_.value()
-vaneLastVal_ = vane_.value()
-anemState_ = 1
+anemDebounceTimeStamp_ = 0
+vaneDebounceTimeStamp_ = 0
+anemTimeStamp_ = 0
+anemLastTimeStamp_ = 0
+anemGpioLastVal_ = anem_.value()
+vaneGpioLastVal_ = vane_.value()
+anemGpioState_ = 1
 vaneState_ = 0
 speeds_ = []
 angles_ = []
@@ -69,50 +69,50 @@ mq_.connect()
 # Loop forever
 while True:
   # Read GPIOs
-  anemVal_ = anem_.value()
-  vaneVal_ = vane_.value()
+  anemGpioVal_ = anem_.value()
+  vaneGpioVal_ = vane_.value()
   now_ = ticks_ms()
 
-  # If anemometer gpio state changed, record time in anemDebounceTime_
-  if anemVal_ != anemLastVal_:
-    anemDebounceTime_ = now_
+  # If anemometer gpio state changed, record time in anemDebounceTimeStamp_
+  if anemGpioVal_ != anemGpioLastVal_:
+    anemDebounceTimeStamp_ = now_
 
   # If anemometer gpio state is stable and debounced
-  if (ticks_diff(now_,anemDebounceTime_) > debounceDelay_):
+  if (ticks_diff(now_,anemDebounceTimeStamp_) > debounceDelay_):
     # if anemometer gpio state has changed
-    if (anemVal_ != anemState_):
+    if (anemGpioVal_ != anemGpioState_):
       # record new anemometer state
-      anemState_ = anemVal_
-      ledsig_.value(anemState_)
+      anemGpioState_ = anemGpioVal_
+      ledsig_.value(anemGpioState_)
       # if new anemometer state is high
-      if (anemState_ == 1):
+      if (anemGpioState_ == 1):
         # move last rotations start time to anemLastTime
-        anemLastTime_ = anemTime_
-        # move this rotations start time to anemTime_
-        anemTime_ = anemDebounceTime_
+        anemLastTimeStamp_ = anemTimeStamp_
+        # move this rotations start time to anemTimeStamp_
+        anemTimeStamp_ = anemDebounceTimeStamp_
         # record this rotations duration
-        anemDuration_ = ticks_diff(anemTime_,anemLastTime_)
+        anemDuration_ = ticks_diff(anemTimeStamp_,anemLastTimeStamp_)
         # calculate this rotations speed from duration, and append to speeds array
         speeds_.append(toSpeed(anemDuration_))
 
-  # If vane gpio state changed, record time in vaneDebounceTime_
-  if vaneVal_ != vaneLastVal_:
-    vaneDebounceTime_ = now_
+  # If vane gpio state changed, record time in vaneDebounceTimeStamp_
+  if vaneGpioVal_ != vaneGpioLastVal_:
+    vaneDebounceTimeStamp_ = now_
 
   # If we have a rotation duration
-  if anemTime_ > 0:
+  if anemTimeStamp_ > 0:
     # if vane gpio state is stable and debounced
-    if (ticks_diff(now_,vaneDebounceTime_) > debounceDelay_):
+    if (ticks_diff(now_,vaneDebounceTimeStamp_) > debounceDelay_):
       # if vane gpio state has changed
-      if (vaneVal_ != vaneState_):
+      if (vaneGpioVal_ != vaneState_):
         # record new vane state
-        vaneState_ = vaneVal_
+        vaneState_ = vaneGpioVal_
         # if new vane state is low
         if (vaneState_ == 0):
           # record this rotations vane time
-          vaneTime_ = vaneDebounceTime_
+          vaneTimeStamp_ = vaneDebounceTimeStamp_
           # record time from start of this rotation to vane state change
-          vaneDelay_ = ticks_diff(vaneTime_,anemTime_)
+          vaneDelay_ = ticks_diff(vaneTimeStamp_,anemTimeStamp_)
           # calculate angle from from rotation duration and vane delay time. Append it to angles array
           angles_.append((vaneDelay_/anemDuration_)*360)
 
@@ -134,5 +134,5 @@ while True:
     angles_.clear()
     speeds_.clear()
 
-  anemLastVal_ = anemVal_
-  vaneLastVal_ = vaneVal_
+  anemGpioLastVal_ = anemGpioVal_
+  vaneGpioLastVal_ = vaneGpioVal_
