@@ -9,6 +9,7 @@ from machine import Pin, Timer, unique_id, freq, Signal
 freq(160000000)
 micropython.alloc_emergency_exception_buf(100)
 
+# return average of angles in degrees
 def circMean(samples_):
   cosSum_ = 0
   sinSum_ = 0
@@ -18,17 +19,19 @@ def circMean(samples_):
     sinSum_ += sin(radians(sample_))
   return (degrees(atan2(sinSum_/n_, cosSum_/n_ )) + 360) % 360
 
+# return speed in kmph from rotation duration in ms
 def toSpeed(time_ms_):
   rps_ = 1/(time_ms_/1000)
   if rps_ < 0.05: #20,000ms
     return 0
   elif rps_ < 3.229:
-    return -0.1095*(rps_*rps_) + 2.9318*rps_ - 0.1412
+    return (-0.1095*(rps_*rps_) + 2.9318*rps_ - 0.1412) * 1.60934
   elif rps_ < 54.362:
-    return 0.0052*(rps_*rps_) + 2.1980*rps_ + 1.1091
+    return (0.0052*(rps_*rps_) + 2.1980*rps_ + 1.1091) * 1.60934
   elif rps_ < 66.332:
-    return 0.1104*(rps_*rps_) - 9.5685*rps_ + 329.87
+    return (0.1104*(rps_*rps_) - 9.5685*rps_ + 329.87) * 1.60934
 
+# handle sendTimer interrupt
 def sendData(x):
   global sendData_
   sendData_ = True
@@ -52,7 +55,7 @@ vaneLastVal_ = vane_.value()
 anemState_ = 1
 vaneState_ = 0
 speeds_ = []
-directions_ = []
+angles_ = []
 
 sendData_ = False
 sendTimer_ = Timer(-1)
@@ -63,35 +66,55 @@ mqtt_clientid_ = ubinascii.hexlify(unique_id()).decode('ascii')
 mq_ = MQTTClient(mqtt_clientid_,mqtt_server_)
 mq_.connect()
 
+# Loop forever
 while True:
+  # Read GPIOs
   anemVal_ = anem_.value()
   vaneVal_ = vane_.value()
   now_ = ticks_ms()
 
+  # If anemometer gpio state changed, record time in anemDebounceTime_
   if anemVal_ != anemLastVal_:
     anemDebounceTime_ = now_
 
+  # If anemometer gpio state is stable and debounced
   if (ticks_diff(now_,anemDebounceTime_) > debounceDelay_):
+    # if anemometer gpio state has changed
     if (anemVal_ != anemState_):
+      # record new anemometer state
       anemState_ = anemVal_
       ledsig_.value(anemState_)
+      # if new anemometer state is high
       if (anemState_ == 1):
+        # move last rotations start time to anemLastTime
         anemLastTime_ = anemTime_
+        # move this rotations start time to anemTime_
         anemTime_ = anemDebounceTime_
+        # record this rotations duration
         anemDuration_ = ticks_diff(anemTime_,anemLastTime_)
+        # calculate this rotations speed from duration, and append to speeds array
         speeds_.append(toSpeed(anemDuration_))
 
+  # If vane gpio state changed, record time in vaneDebounceTime_
   if vaneVal_ != vaneLastVal_:
     vaneDebounceTime_ = now_
 
+  # If we have a rotation duration
   if anemTime_ > 0:
+    # if vane gpio state is stable and debounced
     if (ticks_diff(now_,vaneDebounceTime_) > debounceDelay_):
+      # if vane gpio state has changed
       if (vaneVal_ != vaneState_):
+        # record new vane state
         vaneState_ = vaneVal_
+        # if new vane state is low
         if (vaneState_ == 0):
+          # record this rotations vane time
           vaneTime_ = vaneDebounceTime_
+          # record time from start of this rotation to vane state change
           vaneDelay_ = ticks_diff(vaneTime_,anemTime_)
-          directions_.append((vaneDelay_/anemDuration_)*360)
+          # calculate angle from from rotation duration and vane delay time. Append it to angles array
+          angles_.append((vaneDelay_/anemDuration_)*360)
 
   if sendData_ == True:
     sendData_ = False
@@ -100,13 +123,15 @@ while True:
       speed_ = "NULL"
     else:
       speed_ = str("%.1f" % (sum(speeds_)/len(speeds_)))
-    if not directions_:
-      direction_ = "NULL"
+    if not angles_:
+      angle_ = "NULL"
     else:
-      direction_ = str("%.0f" % circMean(directions_))
-    print(speed_+" mph "+direction_+" deg")
-    mq_.publish("esp8266/"+mqtt_clientid_+"/wind","TIME:0,WIND:"+speed_+",WDIR:"+direction_)
-    directions_.clear()
+      angle_ = str("%.0f" % circMean(angles_))
+    print(speed_+" kmph "+angle_+" deg")
+    mq_.publish("espeet/"+mqtt_clientid_+"/wxmesh","TIME:0,windSpeed:"+speed_+",windDir:"+angle_)
+    mq_.publish("espeet/"+mqtt_clientid_+"/speed",speed_)
+    mq_.publish("espeet/"+mqtt_clientid_+"/angle",angle_)
+    angles_.clear()
     speeds_.clear()
 
   anemLastVal_ = anemVal_
